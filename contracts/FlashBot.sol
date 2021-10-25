@@ -2,16 +2,16 @@
 pragma solidity ^0.7.0;
 pragma abicoder v2;
 
-import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import '@openzeppelin/contracts/token/ERC20/SafeERC20.sol';
+//import '@openzeppelin/contracts/token/ERC20/SafeERC20.sol';
 import '@openzeppelin/contracts/access/Ownable.sol';
 import '@openzeppelin/contracts/utils/EnumerableSet.sol';
 import 'hardhat/console.sol';
 
-import './interfaces/IUniswapV2Pair.sol';
+// import './interfaces/IUniswapV2Pair.sol';
+import './balancer/BFactory.sol';
 import './interfaces/IWETH.sol';
 import './libraries/Decimal.sol';
-
+import './libraries/SafeMath.sol';
 struct OrderedReserves {
     uint256 a1; // base asset
     uint256 b1;
@@ -40,7 +40,7 @@ struct CallbackData {
 contract FlashBot is Ownable {
     using Decimal for Decimal.D256;
     using SafeMath for uint256;
-    using SafeERC20 for IERC20;
+   //using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ACCESS CONTROL
@@ -125,8 +125,8 @@ contract FlashBot is Ownable {
         )
     {
         require(pool0 != pool1, 'Same pair address');
-        (address pool0Token0, address pool0Token1) = (IUniswapV2Pair(pool0).token0(), IUniswapV2Pair(pool0).token1());
-        (address pool1Token0, address pool1Token1) = (IUniswapV2Pair(pool1).token0(), IUniswapV2Pair(pool1).token1());
+        (address pool0Token0, address pool0Token1) = (BFactory(pool0), BFactory(pool0));
+        (address pool1Token0, address pool1Token1) = (BFactory(pool1), BFactory(pool1));
         require(pool0Token0 < pool0Token1 && pool1Token0 < pool1Token1, 'Non standard uniswap AMM pair');
         require(pool0Token0 == pool1Token0 && pool0Token1 == pool1Token1, 'Require same token pair');
         require(baseTokensContains(pool0Token0) || baseTokensContains(pool0Token1), 'No base token in pair');
@@ -151,8 +151,8 @@ contract FlashBot is Ownable {
             OrderedReserves memory orderedReserves
         )
     {
-        (uint256 pool0Reserve0, uint256 pool0Reserve1, ) = IUniswapV2Pair(pool0).getReserves();
-        (uint256 pool1Reserve0, uint256 pool1Reserve1, ) = IUniswapV2Pair(pool1).getReserves();
+        (uint256 pool0Reserve0, uint256 pool0Reserve1, ) = BFactory(pool0).getReserves();
+        (uint256 pool1Reserve0, uint256 pool1Reserve1, ) = BFactory(pool1).getReserves();
 
         // Calculate the price denominated in quote asset token
         (Decimal.D256 memory price0, Decimal.D256 memory price1) =
@@ -215,7 +215,7 @@ contract FlashBot is Ownable {
             callbackData.debtTokenOutAmount = baseTokenOutAmount;
 
             bytes memory data = abi.encode(callbackData);
-            IUniswapV2Pair(info.lowerPool).swap(amount0Out, amount1Out, address(this), data);
+            BFactory(info.lowerPool).swap(amount0Out, amount1Out, address(this), data);
         }
 
         uint256 balanceAfter = IERC20(info.baseToken).balanceOf(address(this));
@@ -244,7 +244,7 @@ contract FlashBot is Ownable {
 
         (uint256 amount0Out, uint256 amount1Out) =
             info.debtTokenSmaller ? (info.debtTokenOutAmount, uint256(0)) : (uint256(0), info.debtTokenOutAmount);
-        IUniswapV2Pair(info.targetPool).swap(amount0Out, amount1Out, address(this), new bytes(0));
+        BFactory(info.targetPool).swap(amount0Out, amount1Out, address(this), new bytes(0));
 
         IERC20(info.debtToken).safeTransfer(info.debtPool, info.debtAmount);
     }
@@ -252,7 +252,7 @@ contract FlashBot is Ownable {
     /// @notice Calculate how much profit we can by arbitraging between two pools
     function getProfit(address pool0, address pool1) external view returns (uint256 profit, address baseToken) {
         (bool baseTokenSmaller, , ) = isbaseTokenSmaller(pool0, pool1);
-        baseToken = baseTokenSmaller ? IUniswapV2Pair(pool0).token0() : IUniswapV2Pair(pool0).token1();
+        baseToken = baseTokenSmaller ? BFactory(pool0) : BFactory(pool0);
 
         (, , OrderedReserves memory orderedReserves) = getOrderedReserves(pool0, pool1, baseTokenSmaller);
 
